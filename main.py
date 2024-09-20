@@ -8,7 +8,7 @@ import subprocess
 import time
 import requests
 
-chrome_path = r'/usr/bin/google-chrome''
+chrome_path = r'/usr/bin/google-chrome'
 debugging_port = '--remote-debugging-port=8989'
 user_data_dir = '--user-data-dir={}'.format(Path.cwd() / 'profile')
 
