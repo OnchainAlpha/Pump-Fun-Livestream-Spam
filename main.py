@@ -11,20 +11,32 @@ import requests
 chrome_path = r'/usr/bin/google-chrome'
 debugging_port = '--remote-debugging-port=8989'
 user_data_dir = '--user-data-dir={}'.format(Path.cwd() / 'profile')
+no_sandbox = '--no-sandbox'
+headless = '--headless'
 
 # Function to start the browser process
 def start_browser():
-    subprocess.Popen([chrome_path, debugging_port, user_data_dir])
-    time.sleep(3)
-    ws_url = requests.get('http://127.0.0.1:8989/json/version').json()['webSocketDebuggerUrl']
-    p = sync_playwright().start()
-    browser = p.chromium.connect_over_cdp(ws_url)
-    return p, browser
+    # Start Chrome in headless mode with remote debugging and no-sandbox
+    subprocess.Popen([chrome_path, headless, no_sandbox, debugging_port, user_data_dir])
+    time.sleep(3)  # Allow Chrome time to start
+
+    # Retrieve the WebSocket Debugger URL
+    try:
+        ws_url = requests.get('http://127.0.0.1:8989/json/version').json()['webSocketDebuggerUrl']
+        p = sync_playwright().start()
+        browser = p.chromium.connect_over_cdp(ws_url)
+        return p, browser
+    except Exception as e:
+        print(f"Error connecting to Chrome: {e}")
+        return None, None
 
 # Outer loop to restart the process
-while True:  
+while True:
     # Start the browser
     p, browser = start_browser()
+    if not browser:  # If browser failed to start, break the loop
+        break
+
     context = browser.contexts[0]
     page = context.pages[0]
     c = Controller(page)
@@ -61,3 +73,4 @@ while True:
 
     # Wait for 5 minutes before restarting the loop
     time.sleep(300)
+
