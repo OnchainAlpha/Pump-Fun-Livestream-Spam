@@ -8,53 +8,39 @@ import subprocess
 import time
 import requests
 
-chrome_path = r'/usr/bin/google-chrome'
+chrome_path = r'C:\Program Files\Google\Chrome\Application\chrome.exe'
 debugging_port = '--remote-debugging-port=8989'
 user_data_dir = '--user-data-dir={}'.format(Path.cwd() / 'profile')
-no_sandbox = '--no-sandbox'
-headless = '--headless'
 
 # Function to start the browser process
 def start_browser():
-    # Start Chrome in headless mode with remote debugging and no-sandbox
-    subprocess.Popen([chrome_path, headless, no_sandbox, debugging_port, user_data_dir])
-    time.sleep(3)  # Allow Chrome time to start
+    subprocess.Popen([chrome_path, debugging_port, user_data_dir])
+    time.sleep(3)
+    ws_url = requests.get('http://127.0.0.1:8989/json/version').json()['webSocketDebuggerUrl']
+    p = sync_playwright().start()
+    browser = p.chromium.connect_over_cdp(ws_url)
+    return p, browser
 
-    # Retrieve the WebSocket Debugger URL
-    try:
-        ws_url = requests.get('http://127.0.0.1:8989/json/version').json()['webSocketDebuggerUrl']
-        p = sync_playwright().start()
-        browser = p.chromium.connect_over_cdp(ws_url)
-        return p, browser
-    except Exception as e:
-        print(f"Error connecting to Chrome: {e}")
-        return None, None
+# Initialize browser and context outside the loop
+p, browser = start_browser()
+context = browser.contexts[0]
+page = context.pages[0]
+c = Controller(page)
+logger = get_logger()
 
-# Outer loop to restart the process
+# Go to the initial page
+page.goto('https://pump.fun/')
+start_time = time.time()  # Record the start time
+
+# Outer loop to repeat tasks
 while True:
-    # Start the browser
-    p, browser = start_browser()
-    if not browser:  # If browser failed to start, break the loop
-        break
+    current_time = time.time()
+    if current_time - start_time > 600:  # Break after 10 minutes
+        logger.info("10 minutes passed. Restarting tasks...")
+        start_time = current_time  # Reset start time
+        # You can choose to perform cleanup or other actions here
 
-    context = browser.contexts[0]
-    page = context.pages[0]
-    c = Controller(page)
-    logger = get_logger()
-
-    # Go to the initial page
-    page.goto('https://pump.fun/')
-    start_time = time.time()  # Record the start time
-
-    # Inner loop to repeat tasks
-    while True:
-        current_time = time.time()
-        if current_time - start_time > 600:  # Break after 10 minutes
-            logger.info("10 minutes passed. Exiting and restarting script...")
-            browser.close()
-            p.stop()
-            break  # Exit inner loop after 10 minutes
-
+    try:
         page.goto('https://pump.fun/')
         urls = c.get_urls()
         logger.info(f'Found urls: {len(urls)}')
@@ -68,9 +54,15 @@ while True:
                 c.send_reply(reply, image_path)
                 page.wait_for_timeout(8000)
             except Exception as e:
-                logger.error(f'exception occurred: {e}')
+                logger.error(f'Exception occurred while processing url {url}: {e}')
                 logger.error(traceback.format_exc())
+    except Exception as e:
+        logger.error(f'Error in main loop: {e}')
+        logger.error(traceback.format_exc())
 
-    # Wait for 5 minutes before restarting the loop
-    time.sleep(300)
+    # Wait for a short duration before the next iteration
+    time.sleep(10)
 
+# Ensure proper cleanup if needed (this code will never reach here due to the infinite loop)
+browser.close()
+p.stop()
